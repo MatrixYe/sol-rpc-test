@@ -1,6 +1,7 @@
 use std::time::Instant;
 
 use anyhow::{Context, Result};
+use clap::builder::Str;
 use reqwest::Client;
 use serde::Deserialize;
 use serde_json::Value;
@@ -30,6 +31,7 @@ pub struct RpcResponse {
 
 #[derive(Deserialize, Debug)]
 pub struct Outcome {
+    pub name: String,
     pub is_ok: bool,
     pub resp: Option<RpcResponse>,
     pub elapsed: f64,
@@ -37,7 +39,8 @@ pub struct Outcome {
 }
 
 
-async fn request(url: &str, method: RpcMethod) -> Result<RpcResponse> {
+async fn request(url: String, method: RpcMethod) -> Result<RpcResponse> {
+    println!("------------------------- Test: {:?} -------------------------", method.method_name());
     let client = Client::new();
     let response = client.post(url)
         .json(&method.request_body())
@@ -47,8 +50,10 @@ async fn request(url: &str, method: RpcMethod) -> Result<RpcResponse> {
         .context("Failed to send request")?;
     if response.status().is_success() {
         let rpc_response: RpcResponse = response.json().await.context("Failed to parse JSON response")?;
+        println!("Result:{:?}", rpc_response.result);
         // 检查是否存在 error 字段
         if let Some(error) = rpc_response.error {
+            println!("Error: {:?}", error);
             return Err(anyhow::anyhow!(
                 "RPC error msg: {} (code: {})",
                 error.message,
@@ -57,20 +62,22 @@ async fn request(url: &str, method: RpcMethod) -> Result<RpcResponse> {
         }
         Ok(rpc_response)
     } else {
+        println!("Request failed with status: {}", response.status());
         Err(anyhow::anyhow!("Request failed with status: {}", response.status()))
     }
 }
 
-pub async fn send_rpc_request(url: &str, method: RpcMethod) -> Outcome {
+pub async fn send_rpc_request(url: String, method: RpcMethod) -> Outcome {
 
     // 开始计时
     let start = Instant::now();
-    let res = request(url, method).await;
+    let res = request(url, method.clone()).await;
     // 计算耗时
     let duration = start.elapsed().as_secs_f64();
     match res {
         Ok(resp) => {
             Outcome {
+                name: method.method_name().to_string(),
                 is_ok: true,
                 resp: Some(resp),
                 elapsed: duration,
@@ -79,6 +86,7 @@ pub async fn send_rpc_request(url: &str, method: RpcMethod) -> Outcome {
         }
         Err(e) => {
             Outcome {
+                name: method.method_name().to_string(),
                 is_ok: false,
                 resp: None,
                 elapsed: duration,
